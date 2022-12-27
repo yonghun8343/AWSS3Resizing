@@ -1,41 +1,37 @@
+// Node버전 12.x버전에서 사용
 const sharp = require("sharp");
-const {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-} = require("@aws-sdk/client-s3");
+const aws = require("aws-sdk");
+const s3 = new aws.S3();
 
-const Bucket = "student-01-test-bucket";
 const transforms = [
   { name: "w_200", width: 200 },
   { name: "w_400", width: 400 },
 ];
 
-const client = new S3Client({ region: "ap-northeast-2" });
-
 exports.handler = async (event, _, callback) => {
+  const Bucket = event.Records[0].s3.bucket.name;
   const key = event.Records[0].s3.object.key;
   const sanitizedKey = key.replace(/\+/g, " ");
   const parts = sanitizedKey.split("/");
   const filename = parts[parts.length - 1];
 
   try {
-    const image = await client.send(
-      new GetObjectCommand({ Bucket, Key: sanitizedKey })
-    );
+    const { Body } = await s3
+      .getObject({ Bucket, Key: sanitizedKey })
+      .promise();
 
     await Promise.all(
-      transforms.map(async (item) => {
-        const resizedImg = await sharp(image.Body)
-          .resize({ width: item.width })
+      transforms.map(async ({ name, width }) => {
+        const resizedImg = await sharp(Body)
+          .resize({ width: width })
           .toBuffer();
-        return await client.send(
-          new PutObjectCommand({
+        return await s3
+          .putObject({
             Bucket,
             Body: resizedImg,
-            Key: `images/${item.name}/${filename}`,
+            Key: `images/${name}/${filename}`,
           })
-        );
+          .promise();
       })
     );
     callback(null, `Success: ${filename}`);
